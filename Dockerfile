@@ -1,8 +1,12 @@
-# syntax=docker/dockerfile:1.6
+# syntax=docker/dockerfile:1.7
 # ─────────────────────────────────────────────────────────────────────────────
 # Multi-stage build for the FastAPI inference service.
-#   stage 1 (builder): install deps with uv into a virtual env
-#   stage 2 (runtime): slim image with only the venv and source
+#
+#   stage 1 (builder): install deps with uv into a virtual env. Uses the
+#                      lockfile for reproducible installs and BuildKit cache
+#                      mounts for fast rebuilds.
+#   stage 2 (runtime): slim image with only the venv and source. Runs as a
+#                      non-root user, ships with a HEALTHCHECK.
 # ─────────────────────────────────────────────────────────────────────────────
 
 ARG PYTHON_VERSION=3.13
@@ -13,9 +17,10 @@ FROM python:${PYTHON_VERSION}-slim AS builder
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1
 
-# Build-time deps for compiling C extensions (xgboost, lightgbm, asyncpg)
+# Build-time deps for compiling C extensions (xgboost, lightgbm, asyncpg).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
@@ -28,14 +33,18 @@ COPY --from=ghcr.io/astral-sh/uv:0.5.13 /uv /uvx /usr/local/bin/
 
 WORKDIR /app
 
-# Copy only manifests first to leverage layer cache
-COPY pyproject.toml ./
-COPY uv.lock* ./
+# Copy the whole project context. We need:
+#   - pyproject.toml + uv.lock for the dep resolution
+#   - README.md because hatchling reads it from pyproject's `readme = "README.md"`
+#   - src/ and app/ because pyproject declares `packages = ["src", "app"]`
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ ./src/
+COPY app/ ./app/
 
-# Resolve & install dependencies into /app/.venv
-RUN uv venv /app/.venv \
-    && . /app/.venv/bin/activate \
-    && uv pip install --no-cache .
+# Sync the lockfile-resolved dependencies into /app/.venv. `--no-dev` excludes
+# notebooks/test/lint packages from the runtime image.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 # ── Stage 2 ──────────────────────────────────────────────────────────────────
 FROM python:${PYTHON_VERSION}-slim AS runtime
@@ -45,14 +54,14 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app
 
-# Runtime libs only (no compilers in the final image)
+# Runtime libs only (no compilers in the final image).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
         libgomp1 \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Non-root user for runtime safety
+# Non-root user for runtime safety.
 RUN groupadd --system --gid 1001 app \
     && useradd  --system --uid 1001 --gid app --create-home app
 
