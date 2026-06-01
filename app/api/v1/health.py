@@ -7,6 +7,8 @@ status (DB, Redis) so on-call can see which dependency is degraded.
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
+from typing import Literal
 
 from fastapi import APIRouter
 
@@ -17,8 +19,10 @@ from src.utils.redis_client import check_redis_connection
 
 router = APIRouter(tags=["health"])
 
+HealthCheck = Callable[[], Awaitable[bool]]
 
-async def _check_component(name: str, coro_fn) -> ComponentHealth:
+
+async def _check_component(name: str, coro_fn: HealthCheck) -> ComponentHealth:
     start = time.perf_counter()
     try:
         ok = await coro_fn()
@@ -42,7 +46,9 @@ async def health(settings: SettingsDep) -> HealthResponse:
         await _check_component("postgres", check_async_connection),
         await _check_component("redis", check_redis_connection),
     ]
-    overall = "ok" if all(c.status == "ok" for c in components) else "degraded"
+    overall: Literal["ok", "degraded"] = (
+        "ok" if all(c.status == "ok" for c in components) else "degraded"
+    )
     return HealthResponse(
         status=overall,
         version=settings.app.version,

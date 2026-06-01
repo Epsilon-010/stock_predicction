@@ -108,15 +108,21 @@ def bulk_copy_ohlcv(
     buf.seek(0)
 
     # Raw psycopg2 connection — required for copy_expert.
+    # SQLAlchemy's DBAPI cursor wrapper type doesn't advertise context-manager
+    # methods, but psycopg2 cursors *do* support `with`. We hand-manage close
+    # instead to keep mypy strict happy.
     raw_conn = sync_engine.raw_connection()
     try:
-        with raw_conn.cursor() as cur:
+        cur = raw_conn.cursor()
+        try:
             cur.execute(
                 "CREATE TEMP TABLE _ohlcv_stage (LIKE ohlcv INCLUDING DEFAULTS) ON COMMIT DROP"
             )
             cur.copy_expert(_COPY_STAGE_SQL, buf)
             cur.execute(_MERGE_FROM_STAGE_SQL)
-            n_rows = cur.rowcount
+            n_rows: int = int(cur.rowcount)
+        finally:
+            cur.close()
         raw_conn.commit()
     except Exception:
         raw_conn.rollback()

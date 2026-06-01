@@ -41,7 +41,7 @@ def _row_to_schema(row: PredictionRow) -> PredictionOut:
 class PredictionService:
     """Cached prediction lookups."""
 
-    def __init__(self, redis: Redis, cache_ttl_seconds: int | None = None) -> None:
+    def __init__(self, redis: Redis[str], cache_ttl_seconds: int | None = None) -> None:
         self._redis = redis
         self._ttl = cache_ttl_seconds or get_settings().redis.cache_ttl_seconds
 

@@ -14,7 +14,7 @@ abstraction, not on `AsyncSession` or `Redis` directly.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends
 from redis.asyncio import Redis
@@ -40,11 +40,18 @@ DBSession = Annotated[AsyncSession, Depends(get_async_session)]
 
 
 # ── Redis client ────────────────────────────────────────────────────────────
-def redis_dep() -> Redis:
+# `Redis` is generic in stubs but NOT at runtime — subscripting it in a
+# module-level `Annotated[...]` would raise `TypeError`. We split the alias:
+# the type-checker sees `Redis[str]` (so it can verify usage); the runtime
+# sees plain `Redis` (so the import doesn't blow up).
+def redis_dep() -> Redis:  # type: ignore[type-arg]
     return get_redis()
 
 
-RedisDep = Annotated[Redis, Depends(redis_dep)]
+if TYPE_CHECKING:
+    RedisDep = Annotated[Redis[str], Depends(redis_dep)]
+else:
+    RedisDep = Annotated[Redis, Depends(redis_dep)]
 
 
 # ── Services ────────────────────────────────────────────────────────────────

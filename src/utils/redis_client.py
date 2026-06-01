@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Final
+from typing import Any, Final, cast
 
 from loguru import logger
 from redis.asyncio import ConnectionPool, Redis
@@ -26,7 +26,11 @@ _settings = get_settings()
 
 # Single shared connection pool. `decode_responses=True` makes get/set return
 # `str` instead of `bytes`, which is what 99% of caller code wants.
-_pool: Final[ConnectionPool] = ConnectionPool.from_url(
+#
+# Note: `ConnectionPool` is generic over the connection *class* (TCP, UDS, …)
+# rather than the response type, so we parametrise it with `Any` — the
+# response decoding is what matters at the `Redis[str]` boundary downstream.
+_pool: Final[ConnectionPool[Any]] = ConnectionPool.from_url(
     str(_settings.redis.url),
     decode_responses=True,
     max_connections=20,
@@ -35,23 +39,27 @@ _pool: Final[ConnectionPool] = ConnectionPool.from_url(
 )
 
 
-def get_redis() -> Redis:
+def get_redis() -> Redis[str]:
     """Return a Redis client bound to the shared pool.
 
     Cheap to call repeatedly; the pool is what holds the actual connections.
     Use this directly in async code or as a FastAPI dependency.
     """
-    return Redis(connection_pool=_pool)
+    # `decode_responses=True` was set on the pool, so responses come back as
+    # `str`. The stubs can't trace that through `connection_pool=`, hence cast.
+    return cast("Redis[str]", Redis(connection_pool=_pool))
 
 
 @asynccontextmanager
-async def redis_client() -> AsyncIterator[Redis]:
+async def redis_client() -> AsyncIterator[Redis[str]]:
     """Context manager that returns a client and cleans up after itself."""
     client = get_redis()
     try:
         yield client
     finally:
-        await client.aclose()
+        # `aclose` exists at runtime in redis-py 5.x but isn't in the stubs
+        # for some versions; the call is intentional, hence the ignore.
+        await client.aclose()  # type: ignore[attr-defined]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -120,4 +128,4 @@ async def cache_get_or_set(
 async def close_redis_pool() -> None:
     """Close the shared connection pool. Call on application shutdown."""
     logger.info("Closing Redis connection pool")
-    await _pool.aclose()
+    await _pool.aclose()  # type: ignore[attr-defined]

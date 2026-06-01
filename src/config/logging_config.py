@@ -20,7 +20,10 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from types import FrameType
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -38,9 +41,9 @@ _CONSOLE_FORMAT = (
 )
 
 
-def _build_json_payload(record: dict) -> dict:
-    """Serialise a loguru record dict into a structured log payload."""
-    payload: dict = {
+def _build_json_payload(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Serialise a loguru record into a structured log payload."""
+    payload: dict[str, Any] = {
         "timestamp": record["time"].isoformat(),
         "level": record["level"].name,
         "logger": record["name"],
@@ -66,7 +69,7 @@ def _json_stderr_sink(message: Message) -> None:
     sys.stderr.write(line + "\n")
 
 
-def _json_file_sink_factory(file_path):
+def _json_file_sink_factory(file_path: Path) -> Callable[[Message], None]:
     """Build a custom file sink that writes JSON lines to *file_path*."""
 
     def sink(message: Message) -> None:
@@ -86,8 +89,9 @@ class _InterceptHandler(logging.Handler):
         except ValueError:
             level = record.levelno
 
-        frame, depth = logging.currentframe(), 2
-        while frame and frame.f_code.co_filename == logging.__file__:
+        frame: FrameType | None = logging.currentframe()
+        depth = 2
+        while frame is not None and frame.f_code.co_filename == logging.__file__:
             frame = frame.f_back
             depth += 1
 

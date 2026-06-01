@@ -21,6 +21,7 @@ from typing import Any
 import mlflow
 import numpy as np
 import pandas as pd
+import polars as pl
 from loguru import logger
 
 from src.config.model_config import ModelConfig, ModelSpec, load_model_config
@@ -68,14 +69,17 @@ def _log_model(model_name: str, model: SupportsProbaPredict) -> str:
     """Log the trained estimator via the registry-provided MLflow logger."""
     entry = get_model_entry(model_name)
     entry.mlflow_logger(model, "model")
-    return f"runs:/{mlflow.active_run().info.run_id}/model"
+    active = mlflow.active_run()
+    if active is None:
+        raise RuntimeError("No active MLflow run — call this inside `with mlflow_run(...)`.")
+    return f"runs:/{active.info.run_id}/model"
 
 
 def train_one_model(
     model_name: str,
     spec: ModelSpec,
     config: ModelConfig,
-    df,
+    df: pl.DataFrame,
 ) -> str | None:
     """Train one model end-to-end. Returns the MLflow run_id."""
     label_col = f"label_direction_{config.target.horizon_days}d"
@@ -162,7 +166,7 @@ def train_one_model(
             enabled=config.mlflow.register_best_model,
         )
 
-        return run.info.run_id
+        return str(run.info.run_id)
 
 
 def train_all(config_path: Path | None = None) -> dict[str, str | None]:

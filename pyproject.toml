@@ -125,17 +125,14 @@ indent-style = "space"
 docstring-code-format = true
 
 # ── Mypy ──────────────────────────────────────────────────────────────────────
+# CI runs `mypy src app` — tests/ is intentionally excluded from strict typing.
 [tool.mypy]
 python_version = "3.13"
 strict = true
 warn_unused_configs = true
 ignore_missing_imports = true
 disallow_untyped_decorators = false
-exclude = ["alembic/versions", "data", "mlruns", "notebooks"]
-
-[[tool.mypy.overrides]]
-module = ["tests.*"]
-disallow_untyped_defs = false
+exclude = ["alembic/versions", "data", "mlruns", "notebooks", "tests"]
 
 # ── Pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
