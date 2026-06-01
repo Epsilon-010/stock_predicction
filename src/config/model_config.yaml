@@ -1,0 +1,138 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ML pipeline configuration — hyper-parameters, feature groups, validation
+#
+# Edited as data; loaded into a Pydantic-validated `ModelConfig` object by
+# `src/config/model_config.py`. Do NOT put secrets here — those live in `.env`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+dataset:
+  market: jp                  # jp | us
+  universe: tse_all           # subset of tickers to use ("tse_all", "topix30", ...)
+  min_history_days: 250       # skip tickers with less than ~1 trading year of data
+  start_date: "2005-01-01"    # global lower bound; per-ticker IPO date overrides
+  end_date: null              # null = use latest available
+
+target:
+  type: direction             # direction | return | volatility
+  horizon_days: 5             # forecast N trading days ahead
+  threshold: 0.0              # for `direction`: return > threshold => positive class
+
+features:
+  price:
+    enabled: true
+    windows: [5, 10, 20, 60, 120]    # rolling windows in trading days
+  volume:
+    enabled: true
+    windows: [5, 20, 60]
+  technical:
+    enabled: true
+    indicators:
+      - rsi
+      - macd
+      - bollinger_bands
+      - atr
+      - obv
+      - stochastic
+  calendar:
+    enabled: true              # day-of-week, month, quarter dummies
+  cross_sectional:
+    enabled: true              # ticker rank within universe per day
+    market_features:
+      - "^TPX"                 # TOPIX index as macro feature
+  lag:
+    enabled: true
+    lags: [1, 2, 3, 5, 10, 20]
+
+preprocessing:
+  drop_na_threshold: 0.3       # drop columns with > 30% missing
+  imputation: forward_fill     # forward_fill | zero | median
+  outlier_clipping:
+    enabled: true
+    method: winsorize
+    quantiles: [0.005, 0.995]
+  scaling:
+    method: standard           # standard | robust | none
+    fit_on: train_only         # critical: no leakage from val/test
+
+split:
+  strategy: walk_forward       # ALWAYS time-aware. No k-fold here.
+  train_start: "2005-01-01"
+  train_end: "2022-12-31"
+  val_start: "2023-01-01"
+  val_end: "2024-12-31"
+  test_start: "2025-01-01"
+  test_end: null
+  embargo_days: 5              # gap between train/val to prevent label leakage
+
+models:
+  baseline_logreg:
+    enabled: true
+    type: sklearn.linear_model.LogisticRegression
+    params:
+      C: 1.0
+      penalty: l2
+      solver: liblinear
+      class_weight: balanced
+      max_iter: 1000
+      random_state: 42
+
+  xgboost:
+    enabled: true
+    type: xgboost.XGBClassifier
+    params:
+      n_estimators: 500
+      max_depth: 6
+      learning_rate: 0.05
+      subsample: 0.8
+      colsample_bytree: 0.8
+      min_child_weight: 5
+      gamma: 0.1
+      reg_alpha: 0.1
+      reg_lambda: 1.0
+      objective: binary:logistic
+      eval_metric: auc
+      tree_method: hist
+      random_state: 42
+      n_jobs: -1
+    early_stopping_rounds: 50
+
+  lightgbm:
+    enabled: false             # alternative gradient booster — disabled by default
+    type: lightgbm.LGBMClassifier
+    params:
+      n_estimators: 500
+      max_depth: -1
+      num_leaves: 63
+      learning_rate: 0.05
+      subsample: 0.8
+      colsample_bytree: 0.8
+      reg_alpha: 0.1
+      reg_lambda: 1.0
+      objective: binary
+      metric: auc
+      random_state: 42
+      n_jobs: -1
+
+evaluation:
+  primary_metric: roc_auc
+  metrics:
+    - roc_auc
+    - average_precision
+    - accuracy
+    - f1
+    - precision
+    - recall
+  classification_threshold: 0.5
+  backtest:
+    enabled: true
+    initial_capital: 1000000   # JPY
+    transaction_cost_bps: 5    # 5 basis points per trade (round-trip)
+    max_position_size_pct: 0.05
+    rebalance_frequency: weekly
+
+mlflow:
+  log_models: true
+  log_artifacts: true
+  log_data_profile: false      # heavy — only enable for milestone runs
+  register_best_model: true
+  model_registry_name: stock_direction_classifier

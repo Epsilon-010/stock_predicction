@@ -1,0 +1,120 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Local development stack — one command to bring up the full infrastructure:
+#
+#   docker compose up -d
+#
+# Services:
+#   postgres : TimescaleDB-flavoured Postgres 16 (time-series hypertables)
+#   redis    : Cache + future task broker
+#   mlflow   : Experiment tracking UI at http://localhost:5000
+#   api      : FastAPI app (rebuilds on code change in dev) — optional
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: stock-prediction
+
+services:
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: stock_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      POSTGRES_DB: ${DATABASE_NAME:-stock_prediction}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "${DATABASE_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-postgres} -d ${DATABASE_NAME:-stock_prediction}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - stock_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: stock_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - stock_net
+
+  mlflow:
+    build:
+      context: ./docker/mlflow
+      dockerfile: Dockerfile
+      args:
+        MLFLOW_VERSION: "2.19.0"
+    image: stock-prediction/mlflow:2.19.0
+    pull_policy: build
+    container_name: stock_mlflow
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --backend-store-uri=postgresql+psycopg2://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-postgres}@postgres:5432/${MLFLOW_DB_NAME:-mlflow}
+      - --default-artifact-root=/mlruns
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    volumes:
+      - mlflow_artifacts:/mlruns
+    networks:
+      - stock_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stock_api
+    restart: unless-stopped
+    profiles: ["api"]            # only starts when `docker compose --profile api up`
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-postgres}@postgres:5432/${DATABASE_NAME:-stock_prediction}
+      REDIS_URL: redis://redis:6379/0
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./src:/app/src:ro
+      - ./app:/app/app:ro
+      - ./data:/app/data
+      - ./models:/app/models
+    networks:
+      - stock_net
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  mlflow_artifacts:
+    driver: local
+
+networks:
+  stock_net:
+    driver: bridge

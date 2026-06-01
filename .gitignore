@@ -1,0 +1,94 @@
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.installed.cfg
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ── Virtual environments ─────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ── Environment / secrets ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── IDE ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Testing / coverage ───────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# ── Type checking ────────────────────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# ── Jupyter ──────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── ML artifacts ─────────────────────────────────────────────────────────────
+mlruns/
+mlartifacts/
+models/*.joblib
+models/*.pkl
+models/*.onnx
+*.h5
+*.pt
+*.ckpt
+
+# ── Data (heavy) ─────────────────────────────────────────────────────────────
+# Raw data: too large to commit; pull via scripts/download_data.sh
+data/raw/**/*.txt
+data/raw/**/*.csv
+data/raw/**/*.zip
+data/interim/**/*.parquet
+data/processed/**/*.parquet
+data/external/
+
+# Keep folder structure with .gitkeep sentinels
+!data/**/.gitkeep
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+*.log.*
+
+# ── Docker volumes ───────────────────────────────────────────────────────────
+.docker/
+postgres_data/
+redis_data/
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+
+# ── uv lockfile is committed (reproducibility) ──────────────────────────────
+# uv.lock  ← intentionally NOT ignored

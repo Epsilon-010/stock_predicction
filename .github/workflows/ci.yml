@@ -1,0 +1,111 @@
+# Continuous Integration — runs on every push and PR.
+#
+# Jobs:
+#   lint   : Ruff (lint + format check) + Mypy (strict).
+#   test   : Unit tests against the lockfile-resolved deps.
+#   build  : Builds the runtime Docker image (smoke test).
+#
+# Integration tests are NOT run here — they need a live Postgres + Redis.
+# Run them locally with `make test` or in a separate workflow that boots
+# the docker-compose stack first.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  UV_VERSION: "0.5.13"
+
+jobs:
+  lint:
+    name: Lint + type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps
+        run: uv sync --extra dev --frozen
+
+      - name: Ruff (lint)
+        run: uv run ruff check src app tests
+
+      - name: Ruff (format check)
+        run: uv run ruff format --check src app tests
+
+      - name: Mypy
+        run: uv run mypy src app
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps
+        run: uv sync --extra dev --frozen
+
+      - name: Run unit tests
+        env:
+          APP_ENV: test
+        run: uv run pytest -m "not integration and not slow" --cov-report=xml
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          retention-days: 7
+
+  build:
+    name: Docker build (smoke test)
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: stock-prediction/api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build MLflow image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/mlflow
+          push: false
+          load: true
+          tags: stock-prediction/mlflow:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
